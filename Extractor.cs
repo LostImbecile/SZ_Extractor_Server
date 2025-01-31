@@ -6,16 +6,17 @@ using System.Text.Json;
 using CUE4Parse.UE4.VirtualFileSystem;
 using System.Text.Json.Serialization;
 using System.Diagnostics.CodeAnalysis;
+using SZ_Extractor.Models;
 
 namespace SZ_Extractor
 {
-    public class Extractor
+    public class Extractor : IDisposable
     {
-        private readonly Options _options;
+        private readonly ApiOptions _options;
         private readonly DefaultFileProvider _provider;
         private readonly Dictionary<string, List<string>> _duplicates;
 
-        public Extractor(Options options)
+        public Extractor(ApiOptions options)
         {
             _options = options;
             _options.OutputPath = Path.GetFullPath(_options.OutputPath);
@@ -34,18 +35,35 @@ namespace SZ_Extractor
 
             _provider.Mount();
 
-            if (_options.Verbose)
-            {
-                Console.WriteLine($"Successfully mounted {_provider.Files.Count} files");
-            }
+            // Get the number of mounted files
+            int mountedFileCount = _provider.Files.Count;
+
+            // Print the number of mounted files to the console
+            Console.WriteLine($"Successfully mounted {mountedFileCount} files");
 
             // Initialize _duplicates here
             _duplicates = FindDuplicateFiles();
+        }
 
-            if (_options.DumpPaths)
-            {
-                DumpAllPaths();
-            }
+        public void Dispose()
+        {
+            _provider?.Dispose();
+            GC.SuppressFinalize(this);
+        }
+
+        public void UpdateOutputPath(string newOutputPath)
+        {
+            _options.OutputPath = Path.GetFullPath(newOutputPath);
+        }
+
+        public Dictionary<string, List<string>> GetDuplicates()
+        {
+            return _duplicates;
+        }
+
+        public int GetMountedFilesCount()
+        {
+            return _provider.Files.Count;
         }
 
         private Dictionary<string, List<string>> FindDuplicateFiles()
@@ -68,13 +86,10 @@ namespace SZ_Extractor
             return fileLocations.Where(kv => kv.Value.Count > 1).ToDictionary(kv => kv.Key, kv => kv.Value);
         }
 
-        public void Run()
+        public bool Run(string contentPath)
         {
-            var targetPathLower = NormalizePath(_options.ContentPath).ToLowerInvariant();
-            if (_options.Verbose)
-            {
-                Console.WriteLine($"Searching for: {_options.ContentPath} (case-insensitive)");
-            }
+            var targetPathLower = NormalizePath(contentPath).ToLowerInvariant();
+            Console.WriteLine($"Requested: {contentPath}"); // Print the requested file/folder
 
             bool anyExtractionSuccessful = false;
             foreach (var vfs in _provider.MountedVfs)
@@ -95,14 +110,7 @@ namespace SZ_Extractor
                 }
             }
 
-            if (anyExtractionSuccessful)
-            {
-                Console.WriteLine("Extraction completed successfully for at least one file/folder.");
-            }
-            else
-            {
-                Console.WriteLine($"Could not find or load file/folder: {_options.ContentPath} (case-insensitive) in any mounted archive.");
-            }
+            return anyExtractionSuccessful;
         }
 
         private bool ExtractFile(string targetPathLower, IAesVfsReader vfs, string? archiveNameOverride = null)
@@ -148,11 +156,6 @@ namespace SZ_Extractor
                     }
 
                     WriteToFile(packageData, outputDirectory, fileEntry.Value.Name);
-
-                    if (_options.Verbose)
-                    {
-                        Console.WriteLine($"Extracted: {Path.GetFileName(fileEntry.Key)} from {archiveName} to {outputDirectory}");
-                    }
                     extractionSuccess = true;
                 }
             }
@@ -193,11 +196,6 @@ namespace SZ_Extractor
                     }
 
                     WriteToFile(packageData, outputDirectory, file.Value.Name);
-
-                    if (_options.Verbose)
-                    {
-                        Console.WriteLine($"Extracted: {file.Key} from {archiveName} to {outputDirectory}");
-                    }
                     extractionSuccess = true;
                 }
             }
@@ -208,7 +206,7 @@ namespace SZ_Extractor
         {
             string finalOutputPath = Path.Combine(Directory.CreateDirectory(outputDirectoryPath).FullName, Path.GetFileName(originalFilename));
 
-            File.WriteAllBytesAsync(finalOutputPath, packageData.First().Value);
+            File.WriteAllBytes(finalOutputPath, packageData.First().Value);
         }
 
         private static bool IsDirectory(string targetPathLower, IAesVfsReader vfs)
@@ -232,67 +230,34 @@ namespace SZ_Extractor
 
             return normalizedPath.TrimStart('\\').TrimEnd('\\');
         }
-
-        private static readonly JsonSerializerOptions _serializerOptions = new() { WriteIndented = true };
-        private class DuplicateEntry
+        readonly JsonSerializerOptions options = new() { WriteIndented = true };
+        public string DumpPaths(string filter)
         {
-            [JsonPropertyName("path")]
-            public required string Path { get; set; }
-
-            [JsonPropertyName("archives")]
-            public required List<string> Archives { get; set; }
-        }
-
-        private void DumpAllPaths()
-        {
-            var output = new Dictionary<string, object>
-            {
-                ["duplicates"] = new List<DuplicateEntry>() // Use List<DuplicateEntry>
-            };
+            var output = new Dictionary<string, List<string>>();
+            var filterNormalised = NormalizePath(filter);
 
             foreach (var vfs in _provider.MountedVfs)
             {
                 var archiveName = Path.GetFileNameWithoutExtension(vfs.Name);
-                output[archiveName] = new List<string>(); // Store file paths for this archive
+                var matchingFiles = new List<string>(); // Initialize outside the inner loop
 
                 foreach (var file in vfs.Files)
                 {
                     var normalizedPath = NormalizePath(file.Key);
-                    ((List<string>)output[archiveName]).Add(normalizedPath); // Add path to archive's list
-
-                    // Add to duplicates list if necessary
-                    if (_duplicates.TryGetValue(normalizedPath, out var archiveNames))
+                    if (normalizedPath.Contains(filterNormalised, StringComparison.OrdinalIgnoreCase))
                     {
-                        var existingDuplicateEntry = ((List<DuplicateEntry>)output["duplicates"])
-                            .FirstOrDefault(d => d.Path == normalizedPath);
-
-                        if (existingDuplicateEntry != null)
-                        {
-                            // Add archive names to the existing entry
-                            existingDuplicateEntry.Archives.AddRange(archiveNames);
-                            existingDuplicateEntry.Archives = existingDuplicateEntry.Archives.Distinct().ToList();
-                        }
-                        else
-                        {
-                            // Create a new DuplicateEntry
-                            var duplicateEntry = new DuplicateEntry
-                            {
-                                Path = normalizedPath,
-                                Archives = archiveNames
-                            };
-                            ((List<DuplicateEntry>)output["duplicates"]).Add(duplicateEntry);
-                        }
+                        matchingFiles.Add(file.Key);
                     }
+                }
+
+                // Only add the entry if there are matching files
+                if (matchingFiles.Count != 0)
+                {
+                    output[archiveName] = matchingFiles;
                 }
             }
 
-            var json = JsonSerializer.Serialize(output, _serializerOptions);
-            File.WriteAllText(Path.Combine(Directory.CreateDirectory(_options.OutputPath).FullName, "paths.json"), json);
-
-            if (_options.Verbose)
-            {
-                Console.WriteLine($"Dumped all virtual paths to: {Path.Combine(_options.OutputPath, "paths.json")}");
-            }
+            return JsonSerializer.Serialize(output, options);
         }
     }
 }
