@@ -1,12 +1,8 @@
-﻿using System;
-using System.IO;
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
-using SZ_Extractor.Models;
+using SZ_Extractor_Server.Models;
 
-namespace SZ_Extractor.Services
+namespace SZ_Extractor_Server.Services
 {
     public class ExtractorService
     {

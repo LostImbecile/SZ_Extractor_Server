@@ -1,7 +1,7 @@
 ﻿using System.Net;
-using SZ_Extractor.Services;
+using SZ_Extractor_Server.Services;
 
-namespace SZ_Extractor
+namespace SZ_Extractor_Server
 {
     public class HttpServer
     {

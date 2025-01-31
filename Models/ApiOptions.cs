@@ -1,7 +1,7 @@
 ﻿using CUE4Parse.UE4.Versions;
 using System.Text.Json.Serialization;
 
-namespace SZ_Extractor.Models
+namespace SZ_Extractor_Server.Models
 {
     public class ApiOptions
     {

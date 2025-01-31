@@ -4,11 +4,9 @@ using CUE4Parse.UE4.Versions;
 using CUE4Parse.UE4.Objects.Core.Misc;
 using System.Text.Json;
 using CUE4Parse.UE4.VirtualFileSystem;
-using System.Text.Json.Serialization;
-using System.Diagnostics.CodeAnalysis;
-using SZ_Extractor.Models;
+using SZ_Extractor_Server.Models;
 
-namespace SZ_Extractor
+namespace SZ_Extractor_Server
 {
     public class Extractor : IDisposable
     {

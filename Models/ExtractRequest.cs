@@ -1,4 +1,4 @@
-﻿namespace SZ_Extractor.Models
+﻿namespace SZ_Extractor_Server.Models
 {
     public class ExtractRequest
     {
