@@ -64,11 +64,10 @@ namespace SZ_Extractor.Services
                     _extractor.UpdateOutputPath(request.OutputPath);
                 }
 
-                // Changed to lowercase 'contentPath'
                 if (string.IsNullOrEmpty(request.ContentPath))
                 {
                     context.Response.StatusCode = 400;
-                    await WriteResponse(context, "contentPath is required");
+                    await WriteResponse(context, "ContentPath is required");
                     context.Response.Close();
                     return;
                 }
@@ -81,12 +80,13 @@ namespace SZ_Extractor.Services
             try
             {
                 // Run extraction and get the success status
-                bool success = _extractor.Run(request.ContentPath);
+                var (success, filePaths) = _extractor.Run(request.ContentPath);
 
                 // Send success/failure message in response
                 var responseMessage = new
                 {
                     Message = success ? "Extraction successful" : "Extraction failed",
+                    FilePaths = filePaths
                 };
                 await WriteJsonResponse(context, responseMessage);
             }

@@ -86,38 +86,36 @@ namespace SZ_Extractor
             return fileLocations.Where(kv => kv.Value.Count > 1).ToDictionary(kv => kv.Key, kv => kv.Value);
         }
 
-        public bool Run(string contentPath)
+        public (bool, List<string>) Run(string contentPath)
         {
             var targetPathLower = NormalizePath(contentPath).ToLowerInvariant();
-            Console.WriteLine($"Requested: {contentPath}"); // Print the requested file/folder
+            Console.WriteLine($"Requested: {contentPath}");
 
             bool anyExtractionSuccessful = false;
+            List<string> extractedFilePaths = []; // List to store extracted file paths
+
             foreach (var vfs in _provider.MountedVfs)
             {
                 if (IsDirectory(targetPathLower, vfs))
                 {
-                    if (ExtractFolder(targetPathLower, vfs))
-                    {
-                        anyExtractionSuccessful = true;
-                    }
+                    var (success, folderFilePaths) = ExtractFolder(targetPathLower, vfs);
+                    anyExtractionSuccessful |= success;
+                    extractedFilePaths.AddRange(folderFilePaths); // Add extracted file paths from folder
                 }
                 else
                 {
-                    if (ExtractFile(targetPathLower, vfs))
-                    {
-                        anyExtractionSuccessful = true;
-                    }
+                    var (success, filePaths) = ExtractFile(targetPathLower, vfs);
+                    anyExtractionSuccessful |= success;
+                    extractedFilePaths.AddRange(filePaths); // Add extracted file paths from file
                 }
             }
 
-            return anyExtractionSuccessful;
+            return (anyExtractionSuccessful, extractedFilePaths);
         }
 
-        private bool ExtractFile(string targetPathLower, IAesVfsReader vfs, string? archiveNameOverride = null)
+        private (bool, List<string>) ExtractFile(string targetPathLower, IAesVfsReader vfs, string? archiveNameOverride = null)
         {
             bool isFilenameOnly = !targetPathLower.Contains('\\');
-
-            // Find all matching files (either full path or filename match)
             var fileEntries = vfs.Files.Where(f =>
                 isFilenameOnly
                     ? NormalizePath(f.Key).EndsWith(targetPathLower, StringComparison.OrdinalIgnoreCase)
@@ -126,10 +124,11 @@ namespace SZ_Extractor
 
             if (fileEntries.Count == 0)
             {
-                return false;
+                return (false, []);
             }
 
             bool extractionSuccess = false;
+            List<string> extractedFilePaths = [];
             foreach (var fileEntry in fileEntries)
             {
                 if (_provider.TrySavePackage(fileEntry.Key, out var packageData))
@@ -137,10 +136,8 @@ namespace SZ_Extractor
                     string archiveName = archiveNameOverride ?? Path.GetFileNameWithoutExtension(vfs.Name);
                     string outputDirectory = _options.OutputPath;
 
-                    // Handle duplicates (different handling for filename-only mode)
                     if (isFilenameOnly)
                     {
-                        // If filename-only, use the full path from the entry to determine duplicates
                         if (_duplicates.ContainsKey(NormalizePath(fileEntry.Key)))
                         {
                             outputDirectory = Path.Combine(outputDirectory, archiveName);
@@ -148,26 +145,29 @@ namespace SZ_Extractor
                     }
                     else
                     {
-                        // If full path, use the provided target path for duplicate handling
                         if (_duplicates.ContainsKey(targetPathLower))
                         {
                             outputDirectory = Path.Combine(outputDirectory, archiveName);
                         }
                     }
 
-                    WriteToFile(packageData, outputDirectory, fileEntry.Value.Name);
+                    // Get the final output path
+                    string finalOutputPath = WriteToFile(packageData, outputDirectory, fileEntry.Value.Name);
+
+                    extractedFilePaths.Add(finalOutputPath); // Add to list
                     extractionSuccess = true;
                 }
             }
-            return extractionSuccess;
+            return (extractionSuccess, extractedFilePaths);
         }
 
-        private bool ExtractFolder(string targetPathLower, IAesVfsReader vfs)
+        private (bool, List<string>) ExtractFolder(string targetPathLower, IAesVfsReader vfs)
         {
             var files = vfs.Files
                 .Where(x => NormalizePath(x.Key).StartsWith(targetPathLower, StringComparison.OrdinalIgnoreCase));
 
             bool extractionSuccess = false;
+            List<string> extractedFilePaths = [];
             foreach (var file in files)
             {
                 if (_provider.TrySavePackage(file.Key, out var packageData))
@@ -183,7 +183,6 @@ namespace SZ_Extractor
 
                     string outputDirectory = _options.OutputPath;
 
-                    // Handle duplicates by adding archive name to the path
                     string archiveName = Path.GetFileNameWithoutExtension(vfs.Name);
                     if (_duplicates.ContainsKey(NormalizePath(file.Key)))
                     {
@@ -195,18 +194,23 @@ namespace SZ_Extractor
                         outputDirectory = Path.Combine(outputDirectory, subfolderPath);
                     }
 
-                    WriteToFile(packageData, outputDirectory, file.Value.Name);
+                    // Get the final output path
+                    string finalOutputPath = WriteToFile(packageData, outputDirectory, file.Value.Name);
+
+                    extractedFilePaths.Add(finalOutputPath); // Add to list
                     extractionSuccess = true;
                 }
             }
-            return extractionSuccess;
+            return (extractionSuccess, extractedFilePaths);
         }
 
-        private static void WriteToFile(IReadOnlyDictionary<string, byte[]> packageData, string outputDirectoryPath, string originalFilename)
+        private static string WriteToFile(IReadOnlyDictionary<string, byte[]> packageData, string outputDirectoryPath, string originalFilename)
         {
             string finalOutputPath = Path.Combine(Directory.CreateDirectory(outputDirectoryPath).FullName, Path.GetFileName(originalFilename));
 
             File.WriteAllBytes(finalOutputPath, packageData.First().Value);
+
+            return finalOutputPath;
         }
 
         private static bool IsDirectory(string targetPathLower, IAesVfsReader vfs)
