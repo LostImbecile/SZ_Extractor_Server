@@ -2,13 +2,7 @@
 
 A simple HTTP server for extracting **known (raw) files** and folders from Unreal Engine game data archives, specifically for **Dragon Ball: Sparking! Zero** but may work for many other games still. Based on [FModel](https://github.com/4sval/FModel/tree/master) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse/tree/master).
 
-## Extraction Options
-
-The extractor now supports filtering by archive. You can specify an optional `archiveName` when making an extraction request. When provided, the extractor will only extract files from the archive whose name (without extension) matches the given value.
-
-For example, using the API:
-
-If `archiveName` is omitted, extraction will process all mounted archives.
+Configure port in config.ini
 
 ## API Endpoints
 
