@@ -6,8 +6,9 @@ using System.Threading.Tasks;
 
 namespace SZ_Extractor_Server
 {
-    internal class Config
+    public class Config
     {
-        public int Port { get; set; } = 5000;
+        public int Port { get; set; }
+        public bool BindToAllInterfaces { get; set; } = false;
     }
 }

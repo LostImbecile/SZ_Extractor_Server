@@ -8,25 +8,45 @@ namespace SZ_Extractor_Server
         private readonly int _port;
         private readonly HttpListener _listener;
         private readonly ExtractorService _extractorService;
+        private readonly bool _bindToAllInterfaces;
 
-        public HttpServer(int port, ExtractorService extractorService)
+        public HttpServer(int port, ExtractorService extractorService, bool bindToAllInterfaces = false)
         {
             _port = port;
+            _bindToAllInterfaces = bindToAllInterfaces;
             _listener = new HttpListener();
-            _listener.Prefixes.Add($"http://*:{_port}/");
+            // Use localhost by default, or * if binding to all interfaces
+            string prefix = _bindToAllInterfaces ? $"http://*:{_port}/" : $"http://localhost:{_port}/";
+            _listener.Prefixes.Add(prefix);
             _extractorService = extractorService;
         }
 
         public async Task StartAsync()
         {
-            _listener.Start();
-            Console.WriteLine($"Server running on port {_port}");
-
-            while (true)
+            try 
             {
-                var context = await _listener.GetContextAsync();
-                // Handle requests asynchronously but use the shared _extractorService instance
-                _ = Task.Run(() => HandleRequest(context, _extractorService));
+                _listener.Start();
+                Console.WriteLine($"Server running on {(_bindToAllInterfaces ? "all interfaces" : "localhost")} port {_port}");
+
+                while (true)
+                {
+                    var context = await _listener.GetContextAsync();
+                    _ = Task.Run(() => HandleRequest(context, _extractorService));
+                }
+            }
+            catch (HttpListenerException ex) when (ex.ErrorCode == 5)
+            {
+                if (_bindToAllInterfaces)
+                {
+                    Console.WriteLine("[Error] Access denied. To bind to all interfaces, the application must be run with administrator privileges.");
+                    Console.WriteLine("        Alternative: Set 'BindToAllInterfaces': false in config.json to bind to localhost only.");
+                }
+                else
+                {
+                    Console.WriteLine("[Error] Access denied when trying to bind to port {_port}.");
+                    Console.WriteLine("        Check if another application is using this port or if you need elevated privileges.");
+                }
+                throw;
             }
         }
 

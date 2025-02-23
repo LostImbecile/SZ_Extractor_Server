@@ -9,7 +9,7 @@ namespace SZ_Extractor_Server
     {
         private static readonly bool _createdNew;
         private const string ConfigFileName = "config.json";
-        private static readonly Config DefaultConfig = new Config { Port = 5000 };
+        private static readonly Config DefaultConfig = new Config { Port = 5000, BindToAllInterfaces = false };
 
         static Program()
         {
@@ -30,18 +30,47 @@ namespace SZ_Extractor_Server
             // Optional PID monitoring
             if (args.Length > 0 && int.TryParse(args[0], out int mainPid))
             {
-                MonitorParentProcess(mainPid);
+                try
+                {
+                    // Verify PID exists before starting monitoring
+                    var parentProcess = Process.GetProcessById(mainPid);
+                    if (parentProcess != null)
+                    {
+                        MonitorParentProcess(parentProcess);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Parent process with PID {mainPid} not found");
+                    }
+                }
+                catch (ArgumentException)
+                {
+                    Console.WriteLine($"Parent process with PID {mainPid} not found");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error verifying parent process: {ex.Message}");
+                }
             }
 
-            // Create ExtractorService instance here
             var extractorService = new ExtractorService();
-
-            // Start HTTP server
-            var server = new HttpServer(config.Port, extractorService);
-
-            // Keep the Task from exiting
-            await server.StartAsync();
-            await Task.Delay(Timeout.Infinite);
+            
+            try 
+            {
+                var server = new HttpServer(config.Port, extractorService, config.BindToAllInterfaces);
+                Console.WriteLine($"Starting server on {(config.BindToAllInterfaces ? "all interfaces" : "localhost")}:{config.Port}");
+                
+                // Keep the Task from exiting
+                await server.StartAsync();
+                await Task.Delay(Timeout.Infinite);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Server Error] {ex.Message}");
+                // Optional: Add a small delay to keep the error message visible
+                await Task.Delay(TimeSpan.FromSeconds(5));
+                throw;
+            }
         }
 
         private static Config LoadOrCreateConfig()
@@ -74,13 +103,34 @@ namespace SZ_Extractor_Server
             return DefaultConfig;
         }
 
-        private static void MonitorParentProcess(int pid)
+        private static void MonitorParentProcess(Process parentProcess)
         {
-            _ = new Timer(_ =>
+            var timer = new Timer(_ =>
             {
-                try { Process.GetProcessById(pid); }
-                catch { Environment.Exit(0); }
+                try
+                {
+                    // Check if process has exited
+                    if (parentProcess.HasExited || parentProcess.WaitForExit(0))
+                    {
+                        Console.WriteLine($"Parent process {parentProcess.Id} has exited, shutting down...");
+                        Environment.Exit(0);
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                    // Process has already exited
+                    Console.WriteLine($"Parent process {parentProcess.Id} has exited, shutting down...");
+                    Environment.Exit(0);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error monitoring parent process: {ex.Message}");
+                    Environment.Exit(1);
+                }
             }, null, 0, 2000);
+
+            // Ensure timer is properly disposed when application exits
+            AppDomain.CurrentDomain.ProcessExit += (s, e) => timer?.Dispose();
         }
     }
 }
