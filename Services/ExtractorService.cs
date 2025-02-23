@@ -75,8 +75,8 @@ namespace SZ_Extractor_Server.Services
 
             try
             {
-                // Run extraction and get the success status
-                var (success, filePaths) = _extractor.Run(request.ContentPath);
+                // Updated to pass the ArchiveName parameter to Run
+                var (success, filePaths) = _extractor.Run(request.ContentPath, request.ArchiveName);
 
                 // Send success/failure message in response
                 var responseMessage = new
@@ -133,7 +133,7 @@ namespace SZ_Extractor_Server.Services
                     return;
                 }
 
-                string dumpResult = _extractor.DumpPaths(request.FilterPath);
+                string dumpResult = _extractor.DumpPaths(request.Filter);
                 await WriteResponse(context, dumpResult);
             }
             finally

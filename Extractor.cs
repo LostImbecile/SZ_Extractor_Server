@@ -13,6 +13,7 @@ namespace SZ_Extractor_Server
         private readonly ApiOptions _options;
         private readonly DefaultFileProvider _provider;
         private readonly Dictionary<string, List<string>> _duplicates;
+        private static readonly HashSet<char> RegexSpecialChars = new() { '\\', '*', '+', '?', '|', '{', '}', '[', ']', '(', ')', '^', '$', '.' };
 
         public Extractor(ApiOptions options)
         {
@@ -74,7 +75,7 @@ namespace SZ_Extractor_Server
                     var normalizedPath = NormalizePath(file.Key);
                     if (!fileLocations.TryGetValue(normalizedPath, out List<string>? value))
                     {
-                        value = ([]);
+                        value = new List<string>();
                         fileLocations[normalizedPath] = value;
                     }
 
@@ -84,27 +85,38 @@ namespace SZ_Extractor_Server
             return fileLocations.Where(kv => kv.Value.Count > 1).ToDictionary(kv => kv.Key, kv => kv.Value);
         }
 
-        public (bool, List<string>) Run(string contentPath)
+        // Updated Run method signature to accept an optional archiveName
+        public (bool, List<string>) Run(string contentPath, string? archiveName = null)
         {
             var targetPathLower = NormalizePath(contentPath).ToLowerInvariant();
             Console.WriteLine($"Requested: {contentPath}");
 
             bool anyExtractionSuccessful = false;
-            List<string> extractedFilePaths = []; // List to store extracted file paths
+            List<string> extractedFilePaths = new List<string>(); // List to store extracted file paths
 
             foreach (var vfs in _provider.MountedVfs)
             {
+                // If an archive filter is provided, skip VFS whose name doesn't match
+                if (!string.IsNullOrEmpty(archiveName))
+                {
+                    if (!string.Equals(Path.GetFileNameWithoutExtension(vfs.Name), archiveName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                }
+
                 if (IsDirectory(targetPathLower, vfs))
                 {
-                    var (success, folderFilePaths) = ExtractFolder(targetPathLower, vfs);
+                    // Pass archiveName as the archiveNameOverride parameter
+                    var (success, folderFilePaths) = ExtractFolder(targetPathLower, vfs, archiveName);
                     anyExtractionSuccessful |= success;
-                    extractedFilePaths.AddRange(folderFilePaths); // Add extracted file paths from folder
+                    extractedFilePaths.AddRange(folderFilePaths);
                 }
                 else
                 {
-                    var (success, filePaths) = ExtractFile(targetPathLower, vfs);
+                    var (success, filePaths) = ExtractFile(targetPathLower, vfs, archiveName);
                     anyExtractionSuccessful |= success;
-                    extractedFilePaths.AddRange(filePaths); // Add extracted file paths from file
+                    extractedFilePaths.AddRange(filePaths);
                 }
             }
 
@@ -122,16 +134,18 @@ namespace SZ_Extractor_Server
 
             if (fileEntries.Count == 0)
             {
-                return (false, []);
+                return (false, new List<string>());
             }
 
             bool extractionSuccess = false;
-            List<string> extractedFilePaths = [];
+            List<string> extractedFilePaths = new List<string>();
             foreach (var fileEntry in fileEntries)
             {
                 if (_provider.TrySavePackage(fileEntry.Key, out var packageData))
                 {
-                    string archiveName = archiveNameOverride ?? Path.GetFileNameWithoutExtension(vfs.Name);
+                    string archiveName = !string.IsNullOrWhiteSpace(archiveNameOverride)
+                        ? archiveNameOverride 
+                        : Path.GetFileNameWithoutExtension(vfs.Name);
                     string outputDirectory = _options.OutputPath;
 
                     if (isFilenameOnly)
@@ -152,20 +166,20 @@ namespace SZ_Extractor_Server
                     // Get the final output path
                     string finalOutputPath = WriteToFile(packageData, outputDirectory, fileEntry.Value.Name);
 
-                    extractedFilePaths.Add(finalOutputPath); // Add to list
+                    extractedFilePaths.Add(finalOutputPath);
                     extractionSuccess = true;
                 }
             }
             return (extractionSuccess, extractedFilePaths);
         }
 
-        private (bool, List<string>) ExtractFolder(string targetPathLower, IAesVfsReader vfs)
+        private (bool, List<string>) ExtractFolder(string targetPathLower, IAesVfsReader vfs, string? archiveNameOverride = null)
         {
             var files = vfs.Files
                 .Where(x => NormalizePath(x.Key).StartsWith(targetPathLower, StringComparison.OrdinalIgnoreCase));
 
             bool extractionSuccess = false;
-            List<string> extractedFilePaths = [];
+            List<string> extractedFilePaths = new List<string>();
             foreach (var file in files)
             {
                 if (_provider.TrySavePackage(file.Key, out var packageData))
@@ -180,8 +194,11 @@ namespace SZ_Extractor_Server
                     }
 
                     string outputDirectory = _options.OutputPath;
-
-                    string archiveName = Path.GetFileNameWithoutExtension(vfs.Name);
+                    // Updated archiveName assignment to handle empty strings
+                    string archiveName = !string.IsNullOrWhiteSpace(archiveNameOverride)
+                        ? archiveNameOverride
+                        : Path.GetFileNameWithoutExtension(vfs.Name);
+                        
                     if (_duplicates.ContainsKey(NormalizePath(file.Key)))
                     {
                         outputDirectory = Path.Combine(outputDirectory, archiveName);
@@ -195,7 +212,7 @@ namespace SZ_Extractor_Server
                     // Get the final output path
                     string finalOutputPath = WriteToFile(packageData, outputDirectory, file.Value.Name);
 
-                    extractedFilePaths.Add(finalOutputPath); // Add to list
+                    extractedFilePaths.Add(finalOutputPath);
                     extractionSuccess = true;
                 }
             }
@@ -235,27 +252,100 @@ namespace SZ_Extractor_Server
         readonly JsonSerializerOptions options = new() { WriteIndented = true };
         public string DumpPaths(string filter)
         {
-            var output = new Dictionary<string, List<string>>();
-            var filterNormalised = NormalizePath(filter);
+            // Check if filter contains regex characters, but treat escaped characters properly
+            bool isRegexSearch = false;
+            for (int i = 0; i < filter.Length; i++)
+            {
+                if (i > 0 && filter[i - 1] == '\\')
+                    continue;
+                    
+                if (RegexSpecialChars.Contains(filter[i]))
+                {
+                    isRegexSearch = true;
+                    break;
+                }
+            }
+
+            if (!isRegexSearch)
+            {
+                return DumpPathsLegacy(filter);
+            }
+
+            var output = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            Console.WriteLine($"Searching with regex: {filter}");
+
+            try
+            {
+                // Don't modify the regex pattern, just normalize slashes
+                var normalizedFilter = filter.Replace('/', '\\');
+
+                var regex = new System.Text.RegularExpressions.Regex(
+                    normalizedFilter,
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+                    System.Text.RegularExpressions.RegexOptions.CultureInvariant
+                );
+
+                foreach (var vfs in _provider.MountedVfs)
+                {
+                    var archiveName = Path.GetFileNameWithoutExtension(vfs.Name);
+                    var matchingFiles = new List<string>();
+
+                    foreach (var file in vfs.Files)
+                    {
+                        var normalizedPath = NormalizePath(file.Key);
+                        if (regex.IsMatch(normalizedPath))
+                        {
+                            matchingFiles.Add(file.Key);
+                        }
+                    }
+
+                    if (matchingFiles.Count > 0)
+                    {
+                        if (output.TryGetValue(archiveName, out var existing))
+                        {
+                            existing.AddRange(matchingFiles);
+                            output[archiveName] = existing.Distinct().ToList();
+                        }
+                        else
+                        {
+                            output[archiveName] = matchingFiles;
+                        }
+                    }
+                }
+            }
+            catch (System.Text.RegularExpressions.RegexParseException)
+            {
+                return DumpPathsLegacy(filter);
+            }
+
+            return JsonSerializer.Serialize(output, options);
+        }
+
+        private string DumpPathsLegacy(string filter)
+        {
+            var output = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var filterNormalized = NormalizePath(filter).ToLowerInvariant();
 
             foreach (var vfs in _provider.MountedVfs)
             {
                 var archiveName = Path.GetFileNameWithoutExtension(vfs.Name);
-                var matchingFiles = new List<string>(); // Initialize outside the inner loop
+                var matchingFiles = vfs.Files
+                    .Where(file => NormalizePath(file.Key).ToLowerInvariant().Contains(filterNormalized))
+                    .Select(file => file.Key)
+                    .ToList();
 
-                foreach (var file in vfs.Files)
+                if (matchingFiles.Count > 0)
                 {
-                    var normalizedPath = NormalizePath(file.Key);
-                    if (normalizedPath.Contains(filterNormalised, StringComparison.OrdinalIgnoreCase))
+                    if (output.TryGetValue(archiveName, out var existing))
                     {
-                        matchingFiles.Add(file.Key);
+                        existing.AddRange(matchingFiles);
+                        // Remove duplicates while preserving order
+                        output[archiveName] = existing.Distinct().ToList();
                     }
-                }
-
-                // Only add the entry if there are matching files
-                if (matchingFiles.Count != 0)
-                {
-                    output[archiveName] = matchingFiles;
+                    else
+                    {
+                        output[archiveName] = matchingFiles;
+                    }
                 }
             }
 

@@ -2,6 +2,14 @@
 
 A simple HTTP server for extracting **known (raw) files** and folders from Unreal Engine game data archives, specifically for **Dragon Ball: Sparking! Zero** but may work for many other games still. Based on [FModel](https://github.com/4sval/FModel/tree/master) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse/tree/master).
 
+## Extraction Options
+
+The extractor now supports filtering by archive. You can specify an optional `archiveName` when making an extraction request. When provided, the extractor will only extract files from the archive whose name (without extension) matches the given value.
+
+For example, using the API:
+
+If `archiveName` is omitted, extraction will process all mounted archives.
+
 ## API Endpoints
 
 ### `POST /configure`
@@ -10,14 +18,12 @@ Configures the server with game data.
 
 **Request Body:**
 
-```json
 {
   "gameDir": "C:\\Games\\Dragon Ball Example\\Paks",
   "engineVersion": "GAME_UE5_1",
   "aesKey": "0x1234...",
   "outputPath": "Output"
 }
-```
 
 *   `gameDir`: **(Required)** Path to the game's `\Paks` directory.
 *   `engineVersion`: **(Required)** Unreal Engine version (e.g., `GAME_UE5_1`).
@@ -26,12 +32,10 @@ Configures the server with game data.
 
 **Response (200 OK):**
 
-```json
 {
   "Message": "Configuration updated, C:\\Games\\Dragon Ball Example\\Paks mounted",
   "MountedFiles": 12345
 }
-```
 
 ### `POST /extract`
 
@@ -39,19 +43,18 @@ Extracts a file or folder.
 
 **Request Body:**
 
-```json
 {
   "contentPath": "SparkingZERO/Content/CriWareData/bgm_main.awb",
-  "outputPath": "C:\\ExtractedFiles" 
+  "outputPath": "C:\\ExtractedFiles",
+  "archiveName": "archive1"
 }
-```
 
 *   `contentPath`: **(Required)** Virtual path/filename to extract (e.g., `SparkingZERO/Content/CriWareData/bgm_main.awb` or `bgm_main.awb`).
 *   `outputPath`: (Optional) Output directory. Defaults to the one configured during `/configure`.
+*   `archiveName`: (Optional) Name of the archive to extract from. If omitted, extraction will process all mounted archives.
 
 **Response (200 OK):**
 
-```json
 {
   "Message": "Extraction successful",
   "FilePaths": [
@@ -59,17 +62,14 @@ Extracts a file or folder.
     "C:\\ExtractedFiles\\archive2\\SparkingZERO\\Content\\CriWareData\\bgm_main.awb"
   ]
 }
-```
 Files will have been extracted following the format of the cli tool, paths are returned for convenience.
 
 **Response (400 Bad Request):**
 
-```json
 {
   "Message": "Extraction failed",
   "FilePaths": [] 
 }
-```
 
 ### `GET /duplicates`
 
@@ -77,7 +77,6 @@ Retrieves a list of duplicate files and their locations.
 
 **Response (200 OK):**
 
-```json
 {
   "SparkingZERO/Content/Characters/Goku/Goku_Base.uasset": [
     "archive1",
@@ -88,25 +87,21 @@ Retrieves a list of duplicate files and their locations.
     "archive4"
   ]
 }
-```
 
 ### `POST /dump`
 
-Dumps all virtual file paths, filtered by a given path.
+Dumps all virtual file paths, filtered by a given path or pattern.
 
 **Request Body:**
 
-```json
 {
-  "FilterPath": "Characters/Goku"
+  "filter": "Characters/Goku"
 }
-```
 
-*   `FilterPath`: **(Required)**  A path to filter by. (e.g. `Characters/Goku` will return all paths that include `Characters/Goku`).
+*   `filter`: **(Required)** A path or pattern to filter by. Supports regular expressions for pattern matching (e.g., `Characters/Goku` or `Characters.*\.awb$`). If an invalid or no regex pattern is provided, it falls back to simple string matching. The search is case-insensitive.
 
 **Response (200 OK):**
 
-```json
 {
     "archive1": [
         "SparkingZERO/Content/Characters/Goku/Costumes/Base/Goku_Base.uasset",
@@ -117,7 +112,8 @@ Dumps all virtual file paths, filtered by a given path.
         "SparkingZERO/Content/Characters/Goku/Blue/Goku_Blue.uexp"
     ]
 }
-```
+
+**Examples:**
 
 ## Notes
 

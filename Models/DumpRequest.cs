@@ -1,7 +1,10 @@
-﻿namespace SZ_Extractor_Server.Models
+﻿using System.Text.Json.Serialization;
+
+namespace SZ_Extractor_Server.Models
 {
     public class DumpRequest
     {
-        public string FilterPath { get; set; } = "";
+        [JsonPropertyName("filter")]
+        public string Filter { get; set; } = "";
     }
 }
