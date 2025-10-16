@@ -33,6 +33,25 @@ SZ_Extractor_Server.exe --pid 1234 --port 8080
 
 ## API Endpoints
 
+### `GET /` or `GET /identify`
+
+Returns service identification information. Use this endpoint to verify that the SZ_Extractor_Server is running on a given port.
+
+**Response (200 OK):**
+```json
+{
+  "Service": "SZ_Extractor_Server",
+  "Version": "1.0",
+  "Status": "running",
+  "Description": "Unreal Engine asset extraction service"
+}
+```
+
+This endpoint is useful for:
+- Service discovery by other applications
+- Verifying the correct service is running on a port
+- Health checks
+
 ### `POST /configure`
 
 Configures the server with game data.

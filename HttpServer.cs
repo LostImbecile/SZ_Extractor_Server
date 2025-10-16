@@ -81,6 +81,10 @@ namespace SZ_Extractor_Server
                         case "/duplicates":
                             await service.HandleDuplicates(context);
                             break;
+                        case "/identify":
+                        case "/":
+                            await HandleIdentify(context);
+                            break;
                         default:
                             context.Response.StatusCode = 404;
                             break;
@@ -101,6 +105,23 @@ namespace SZ_Extractor_Server
             {
                 context.Response.Close();
             }
+        }
+
+        private static async Task HandleIdentify(HttpListenerContext context)
+        {
+            var identification = new
+            {
+                Service = "SZ_Extractor_Server",
+                Version = "1.2",
+                Status = "running",
+                Description = "Unreal Engine asset extraction service"
+            };
+
+            var json = System.Text.Json.JsonSerializer.Serialize(identification);
+            var buffer = System.Text.Encoding.UTF8.GetBytes(json);
+            context.Response.ContentType = "application/json";
+            context.Response.ContentLength64 = buffer.Length;
+            await context.Response.OutputStream.WriteAsync(buffer);
         }
 
         private static async Task WriteResponse(HttpListenerContext context, string message)
