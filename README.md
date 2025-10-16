@@ -2,7 +2,34 @@
 
 A simple HTTP server for extracting **known (raw) files** and folders from Unreal Engine game data archives, specifically for **Dragon Ball: Sparking! Zero** but may work for many other games still. Based on [FModel](https://github.com/4sval/FModel/tree/master) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse/tree/master).
 
-Configure port in config.ini
+## Configuration
+
+The server can be configured via `config.json` (created automatically on first run with default values):
+```json
+{
+  "Port": 5000,
+  "BindToAllInterfaces": false
+}
+```
+
+### Command-Line Arguments
+
+- **`--port <port>` or `-p <port>`**: Override the port specified in config.json
+  - Example: `SZ_Extractor_Server.exe --port 8080`
+- **`--pid <processId>`**: Monitor a parent process and exit when it terminates
+  - Example: `SZ_Extractor_Server.exe --pid 1234 --port 8080`
+
+**Usage Examples:**
+```bash
+# Use default port from config.json
+SZ_Extractor_Server.exe
+
+# Override port
+SZ_Extractor_Server.exe --port 8080
+
+# With process monitoring
+SZ_Extractor_Server.exe --pid 1234 --port 8080
+```
 
 ## API Endpoints
 

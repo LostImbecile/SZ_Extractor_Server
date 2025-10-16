@@ -27,25 +27,69 @@ namespace SZ_Extractor_Server
             // Load or create configuration
             Config config = LoadOrCreateConfig();
 
+            // Parse command-line arguments
+            int? portOverride = null;
+            int? pidToMonitor = null;
+
+            for (int i = 0; i < args.Length; i++)
+            {
+                string arg = args[i];
+                
+                // Check for port argument
+                if ((arg == "--port" || arg == "-p") && i + 1 < args.Length)
+                {
+                    if (int.TryParse(args[i + 1], out int port))
+                    {
+                        portOverride = port;
+                        i++; // Skip next argument since we consumed it
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Invalid port value: {args[i + 1]}");
+                    }
+                }
+                // Check for PID argument
+                else if ((arg == "--pid" || arg == "-pid") && i + 1 < args.Length)
+                {
+                    if (int.TryParse(args[i + 1], out int pid))
+                    {
+                        pidToMonitor = pid;
+                        i++; // Skip next argument since we consumed it
+                    }
+                }
+                // Support legacy positional argument for PID (first arg is PID if it's just a number)
+                else if (i == 0 && int.TryParse(arg, out int legacyPid) && !arg.StartsWith("-"))
+                {
+                    pidToMonitor = legacyPid;
+                }
+            }
+
+            // Override config port if specified
+            if (portOverride.HasValue)
+            {
+                Console.WriteLine($"Port override from command-line: {portOverride.Value}");
+                config.Port = portOverride.Value;
+            }
+
             // Optional PID monitoring
-            if (args.Length > 0 && int.TryParse(args[0], out int mainPid))
+            if (pidToMonitor.HasValue)
             {
                 try
                 {
                     // Verify PID exists before starting monitoring
-                    var parentProcess = Process.GetProcessById(mainPid);
+                    var parentProcess = Process.GetProcessById(pidToMonitor.Value);
                     if (parentProcess != null)
                     {
                         MonitorParentProcess(parentProcess);
                     }
                     else
                     {
-                        Console.WriteLine($"Parent process with PID {mainPid} not found");
+                        Console.WriteLine($"Parent process with PID {pidToMonitor.Value} not found");
                     }
                 }
                 catch (ArgumentException)
                 {
-                    Console.WriteLine($"Parent process with PID {mainPid} not found");
+                    Console.WriteLine($"Parent process with PID {pidToMonitor.Value} not found");
                 }
                 catch (Exception ex)
                 {
