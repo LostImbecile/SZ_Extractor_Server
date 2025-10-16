@@ -2,6 +2,7 @@
 using System.Text.Json;
 using SZ_Extractor_Server.Services;
 using SZ_Extractor_Server;
+using SZ_Extractor_Server.Utils;
 
 namespace SZ_Extractor_Server
 {
@@ -64,19 +65,21 @@ namespace SZ_Extractor_Server
                 }
             }
 
-            // Override config port if specified
             if (portOverride.HasValue)
             {
                 Console.WriteLine($"Port override from command-line: {portOverride.Value}");
                 config.Port = portOverride.Value;
             }
 
-            // Optional PID monitoring
+            if (!await PortChecker.CheckPortAvailability(config.Port))
+            {
+                return;
+            }
+
             if (pidToMonitor.HasValue)
             {
                 try
                 {
-                    // Verify PID exists before starting monitoring
                     var parentProcess = Process.GetProcessById(pidToMonitor.Value);
                     if (parentProcess != null)
                     {
@@ -104,14 +107,12 @@ namespace SZ_Extractor_Server
                 var server = new HttpServer(config.Port, extractorService, config.BindToAllInterfaces);
                 Console.WriteLine($"Starting server on {(config.BindToAllInterfaces ? "all interfaces" : "localhost")}:{config.Port}");
                 
-                // Keep the Task from exiting
                 await server.StartAsync();
                 await Task.Delay(Timeout.Infinite);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[Server Error] {ex.Message}");
-                // Optional: Add a small delay to keep the error message visible
                 await Task.Delay(TimeSpan.FromSeconds(5));
                 throw;
             }
@@ -153,7 +154,6 @@ namespace SZ_Extractor_Server
             {
                 try
                 {
-                    // Check if process has exited
                     if (parentProcess.HasExited || parentProcess.WaitForExit(0))
                     {
                         Console.WriteLine($"Parent process {parentProcess.Id} has exited, shutting down...");
@@ -162,7 +162,6 @@ namespace SZ_Extractor_Server
                 }
                 catch (InvalidOperationException)
                 {
-                    // Process has already exited
                     Console.WriteLine($"Parent process {parentProcess.Id} has exited, shutting down...");
                     Environment.Exit(0);
                 }
@@ -173,7 +172,6 @@ namespace SZ_Extractor_Server
                 }
             }, null, 0, 2000);
 
-            // Ensure timer is properly disposed when application exits
             AppDomain.CurrentDomain.ProcessExit += (s, e) => timer?.Dispose();
         }
     }
