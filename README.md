@@ -47,7 +47,7 @@ Extracts a file or folder.
 *   `outputPath`: (Optional) Output directory. Defaults to the one configured during `/configure`.
 *   `archiveName`: (Optional) Name of the archive to extract from. If omitted, extraction will process all mounted archives.
 
-**Response (200 OK):**
+**Response (201 Created):**
 ```json
 {
   "Message": "Extraction successful",

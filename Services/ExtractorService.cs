@@ -12,17 +12,34 @@ namespace SZ_Extractor_Server.Services
 
         public async Task HandleConfigure(HttpListenerContext context)
         {
-            var options = await ReadJson<ApiOptions>(context.Request);
+            ApiOptions options;
+            try
+            {
+                options = await ReadJson<ApiOptions>(context.Request);
+            }
+            catch (JsonException)
+            {
+                await WriteResponse(context, "Invalid JSON format", HttpStatusCode.BadRequest);
+                return;
+            }
 
             await _configSemaphore.WaitAsync();
             try
             {
-                options.Validate();
+                try
+                {
+                    options.Validate();
+                }
+                catch (ArgumentException ex)
+                {
+                    await WriteResponse(context, ex.Message, HttpStatusCode.BadRequest);
+                    return;
+                }
+
                 _currentOptions = options;
                 _extractor?.Dispose();
                 _extractor = new Extractor(_currentOptions);
 
-                // Get mounted files count from Extractor
                 int mountedFilesCount = _extractor.GetMountedFilesCount();
 
                 var responseMessage = new
@@ -31,7 +48,7 @@ namespace SZ_Extractor_Server.Services
                     MountedFiles = mountedFilesCount
                 };
 
-                await WriteJsonResponse(context, responseMessage);
+                await WriteJsonResponse(context, responseMessage, HttpStatusCode.OK);
             }
             finally
             {
@@ -41,16 +58,23 @@ namespace SZ_Extractor_Server.Services
 
         public async Task HandleExtract(HttpListenerContext context)
         {
-            var request = await ReadJson<ExtractRequest>(context.Request);
+            ExtractRequest request;
+            try
+            {
+                request = await ReadJson<ExtractRequest>(context.Request);
+            }
+            catch (JsonException)
+            {
+                await WriteResponse(context, "Invalid JSON format", HttpStatusCode.BadRequest);
+                return;
+            }
 
             await _configSemaphore.WaitAsync();
             try
             {
                 if (_currentOptions == null || _extractor == null)
                 {
-                    context.Response.StatusCode = 400;
-                    await WriteResponse(context, "Not configured");
-                    context.Response.Close();
+                    await WriteResponse(context, "Not configured", HttpStatusCode.BadRequest);
                     return;
                 }
 
@@ -62,9 +86,7 @@ namespace SZ_Extractor_Server.Services
 
                 if (string.IsNullOrEmpty(request.ContentPath))
                 {
-                    context.Response.StatusCode = 400;
-                    await WriteResponse(context, "ContentPath is required");
-                    context.Response.Close();
+                    await WriteResponse(context, "ContentPath is required", HttpStatusCode.BadRequest);
                     return;
                 }
             }
@@ -75,21 +97,20 @@ namespace SZ_Extractor_Server.Services
 
             try
             {
-                // Updated to pass the ArchiveName parameter to Run
                 var (success, filePaths) = _extractor.Run(request.ContentPath, request.ArchiveName);
 
-                // Send success/failure message in response
                 var responseMessage = new
                 {
                     Message = success ? "Extraction successful" : "Extraction failed",
                     FilePaths = filePaths
                 };
-                await WriteJsonResponse(context, responseMessage);
+                
+                await WriteJsonResponse(context, responseMessage, 
+                    success ? HttpStatusCode.Created : HttpStatusCode.BadRequest);
             }
             catch (Exception ex)
             {
-                context.Response.StatusCode = 500;
-                await WriteResponse(context, ex.Message);
+                await WriteResponse(context, ex.Message, HttpStatusCode.InternalServerError);
             }
             finally
             {
@@ -104,13 +125,16 @@ namespace SZ_Extractor_Server.Services
             {
                 if (_currentOptions == null || _extractor == null)
                 {
-                    context.Response.StatusCode = 400;
-                    await WriteResponse(context, "Not configured");
+                    await WriteResponse(context, "Not configured", HttpStatusCode.BadRequest);
                     return;
                 }
 
                 var duplicates = _extractor.GetDuplicates();
-                await WriteJsonResponse(context, duplicates);
+                await WriteJsonResponse(context, duplicates, HttpStatusCode.OK);
+            }
+            catch (Exception ex)
+            {
+                await WriteResponse(context, ex.Message, HttpStatusCode.InternalServerError);
             }
             finally
             {
@@ -121,20 +145,32 @@ namespace SZ_Extractor_Server.Services
 
         public async Task HandleDump(HttpListenerContext context)
         {
-            var request = await ReadJson<DumpRequest>(context.Request);
+            DumpRequest request;
+            try
+            {
+                request = await ReadJson<DumpRequest>(context.Request);
+            }
+            catch (JsonException)
+            {
+                await WriteResponse(context, "Invalid JSON format", HttpStatusCode.BadRequest);
+                return;
+            }
 
             await _configSemaphore.WaitAsync();
             try
             {
                 if (_currentOptions == null || _extractor == null)
                 {
-                    context.Response.StatusCode = 400;
-                    await WriteResponse(context, "Not configured");
+                    await WriteResponse(context, "Not configured", HttpStatusCode.BadRequest);
                     return;
                 }
 
                 string dumpResult = _extractor.DumpPaths(request.Filter);
-                await WriteResponse(context, dumpResult);
+                await WriteResponse(context, dumpResult, HttpStatusCode.OK);
+            }
+            catch (Exception ex)
+            {
+                await WriteResponse(context, ex.Message, HttpStatusCode.InternalServerError);
             }
             finally
             {
@@ -151,21 +187,23 @@ namespace SZ_Extractor_Server.Services
                 ?? throw new ArgumentException("Invalid request body");
         }
 
-        private static async Task WriteResponse(HttpListenerContext context, string message)
+        private static async Task WriteResponse(HttpListenerContext context, string message, HttpStatusCode statusCode = HttpStatusCode.OK)
         {
+            context.Response.StatusCode = (int)statusCode;
             var buffer = System.Text.Encoding.UTF8.GetBytes(message);
             context.Response.ContentLength64 = buffer.Length;
+            context.Response.ContentType = "text/plain";
             await context.Response.OutputStream.WriteAsync(buffer);
         }
 
-        private static async Task WriteJsonResponse(HttpListenerContext context, object responseObj)
+        private static async Task WriteJsonResponse(HttpListenerContext context, object responseObj, HttpStatusCode statusCode = HttpStatusCode.OK)
         {
+            context.Response.StatusCode = (int)statusCode;
             var json = JsonSerializer.Serialize(responseObj);
             var buffer = System.Text.Encoding.UTF8.GetBytes(json);
             context.Response.ContentType = "application/json";
             context.Response.ContentLength64 = buffer.Length;
             await context.Response.OutputStream.WriteAsync(buffer);
-            context.Response.StatusCode = 200;
         }
     }
 }

@@ -9,7 +9,10 @@
 		<PublishAot>False</PublishAot>
 		<PublishTrimmed>False</PublishTrimmed>
 		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
-	</PropertyGroup>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
 
 	<ItemGroup>
 		<PackageReference Include="CUE4Parse" Version="1.1.1" />
